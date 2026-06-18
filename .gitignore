@@ -16,6 +16,7 @@ build/
 prisma/dev.db
 prisma/prod.db
 prisma/migrations/
+apps/api/prisma/migrations/
 
 # uploads subidas localmente
 apps/api/uploads/*
