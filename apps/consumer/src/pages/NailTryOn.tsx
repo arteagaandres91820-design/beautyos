@@ -251,7 +251,7 @@ export function NailTryOn() {
     async function init() {
       try {
         // Check camera permission first
-        await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+        await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } } });
 
         setStatus('loading');
 
@@ -281,8 +281,9 @@ export function NailTryOn() {
             onFrame: async () => {
               if (videoRef.current) await hands.send({ image: videoRef.current });
             },
-            width: 640,
-            height: 480,
+            width: 1280,
+            height: 720,
+            facingMode: 'environment',
           });
           await cam.start();
           cameraRef.current = cam;
