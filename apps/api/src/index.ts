@@ -83,14 +83,17 @@ app.listen(PORT, async () => {
   ╚══════════════════════════════════════╝
   `);
 
-  // Backfill slugs for existing businesses that have none
-  const noSlug = await prisma.business.findMany({ where: { slug: '' } });
-  for (const biz of noSlug) {
-    const base = generateSlug(biz.name) || biz.id.slice(-8);
-    const taken = await prisma.business.findFirst({ where: { slug: base, NOT: { id: biz.id } } });
-    const slug = taken ? `${base}-${biz.id.slice(-4)}` : base;
-    await prisma.business.update({ where: { id: biz.id }, data: { slug } });
-    console.log(`  [slug] Backfilled "${biz.name}" → "${slug}"`);
+  try {
+    const noSlug = await prisma.business.findMany({ where: { slug: '' } });
+    for (const biz of noSlug) {
+      const base = generateSlug(biz.name) || biz.id.slice(-8);
+      const taken = await prisma.business.findFirst({ where: { slug: base, NOT: { id: biz.id } } });
+      const slug = taken ? `${base}-${biz.id.slice(-4)}` : base;
+      await prisma.business.update({ where: { id: biz.id }, data: { slug } });
+      console.log(`  [slug] Backfilled "${biz.name}" → "${slug}"`);
+    }
+  } catch (e) {
+    console.error('  [slug] Backfill skipped:', e);
   }
 });
 
