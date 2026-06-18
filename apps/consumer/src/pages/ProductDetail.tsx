@@ -57,7 +57,7 @@ export function ProductDetail() {
     <div className="phone-shell bg-[#EFF4F1] flex flex-col">
       {/* Hero product image */}
       <div className="relative shrink-0">
-        <ProductImage product={product} size="lg" className="w-full" style={{ minHeight: 300 } as React.CSSProperties} />
+        <div style={{ minHeight: 300 }}><ProductImage product={product} size="lg" className="w-full" /></div>
 
         {/* Top bar overlay */}
         <div className="absolute top-0 left-0 right-0 flex items-center justify-between p-4 pt-12">

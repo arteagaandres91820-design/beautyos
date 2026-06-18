@@ -25,7 +25,7 @@ export function App() {
   return (
     <ProfileProvider>
     <CartProvider>
-      <BrowserRouter>
+      <BrowserRouter basename={import.meta.env.BASE_URL.replace(/\/$/, '')}>
         <div className="min-h-dvh bg-primary flex items-start justify-center">
           <Routes>
             <Route path="/" element={<Splash />} />
