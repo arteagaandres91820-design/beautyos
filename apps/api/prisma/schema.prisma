@@ -3,12 +3,11 @@ generator client {
 }
 
 datasource db {
-  provider = "sqlite"
+  provider = "postgresql"
   url      = env("DATABASE_URL")
 }
 
-// SQLite: enums as String validated by Prisma
-// SQLite: String[] → String (JSON-encoded)
+// PostgreSQL deployment. JSON-encoded String arrays kept for compatibility.
 
 model Business {
   id           String   @id @default(cuid())
