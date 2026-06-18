@@ -1,0 +1,65 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  * { -webkit-tap-highlight-color: transparent; }
+  html, body, #root {
+    height: 100%;
+    background-color: #083D42;
+  }
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, sans-serif;
+    color: #0D1B2A;
+    overscroll-behavior: none;
+  }
+  ::-webkit-scrollbar { display: none; }
+}
+
+@layer components {
+  .phone-shell {
+    @apply relative mx-auto overflow-hidden bg-[#EFF4F1];
+    max-width: 430px;
+    min-height: 100dvh;
+  }
+
+  .btn-primary {
+    @apply bg-primary text-white font-semibold py-4 px-6 rounded-2xl w-full
+           text-center transition-all duration-200 active:scale-95 shadow-btn
+           text-[15px] tracking-wide;
+  }
+
+  .btn-ghost {
+    @apply text-primary font-semibold py-3 px-6 rounded-2xl w-full text-center
+           transition-all duration-200 active:scale-95 text-[15px];
+  }
+
+  .card {
+    @apply bg-white rounded-3xl shadow-card overflow-hidden;
+  }
+
+  .tag {
+    @apply text-[11px] font-medium px-3 py-1 rounded-full border border-primary-200
+           text-primary-500 bg-primary-50;
+  }
+
+  .page-enter {
+    animation: fadeUp 0.3s ease forwards;
+  }
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(12px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes shimmer {
+  0%   { background-position: -400px 0; }
+  100% { background-position: 400px 0; }
+}
+
+.skeleton {
+  background: linear-gradient(90deg, #e8f0ee 25%, #d4e8e4 50%, #e8f0ee 75%);
+  background-size: 800px 100%;
+  animation: shimmer 1.5s infinite;
+}

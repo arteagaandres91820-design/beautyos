@@ -1,0 +1,19 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "beautyos-web",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace=apps/web"],
+      "port": 5173,
+      "cwd": "C:\\Users\\Andres Arteaga\\Desktop\\Proyectos WEB\\BeautyOS"
+    },
+    {
+      "name": "beautyos-consumer",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--workspace=apps/consumer"],
+      "port": 5175,
+      "cwd": "C:\\Users\\Andres Arteaga\\Desktop\\Proyectos WEB\\BeautyOS"
+    }
+  ]
+}

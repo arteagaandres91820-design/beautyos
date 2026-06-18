@@ -1,0 +1,531 @@
+import { useEffect, useRef, useState, useCallback } from 'react';
+import { useNavigate, useParams, useLocation } from 'react-router-dom';
+import { NAIL_DESIGNS, type NailDesign } from '../data/nailDesigns';
+import { fetchPublicNailDesigns } from '../lib/api';
+
+// MediaPipe typings (loaded from CDN at runtime)
+declare global {
+  interface Window {
+    Hands: any;
+    Camera: any;
+  }
+}
+
+// Fingertip landmark indices in MediaPipe Hands
+const FINGERTIP_IDS = [4, 8, 12, 16, 20];
+// Knuckle just below each fingertip (for sizing nails)
+const KNUCKLE_IDS  = [3, 7, 11, 15, 19];
+
+function loadScript(src: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
+    const s = document.createElement('script');
+    s.src = src;
+    s.crossOrigin = 'anonymous';
+    s.onload = () => resolve();
+    s.onerror = reject;
+    document.head.appendChild(s);
+  });
+}
+
+function drawNailOnCanvas(
+  ctx: CanvasRenderingContext2D,
+  tip: { x: number; y: number },
+  knuckle: { x: number; y: number },
+  design: NailDesign,
+  cw: number,
+  ch: number,
+  imageEl?: HTMLImageElement | null
+) {
+  const tx = tip.x * cw;
+  const ty = tip.y * ch;
+  const kx = knuckle.x * cw;
+  const ky = knuckle.y * ch;
+
+  const dx = tx - kx;
+  const dy = ty - ky;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  if (len < 5) return;
+
+  const nailH = len * 1.1;
+  const nailW = nailH * 0.65;
+  const angle = Math.atan2(dy, dx) - Math.PI / 2;
+
+  ctx.save();
+  ctx.translate(tx, ty);
+  ctx.rotate(angle);
+
+  const r = nailW * 0.45;
+  const rr = r * 0.6;
+
+  // Nail shape path (rounded rectangle)
+  ctx.beginPath();
+  ctx.moveTo(-nailW / 2 + r, 0);
+  ctx.arcTo(nailW / 2, 0, nailW / 2, nailH, r);
+  ctx.arcTo(nailW / 2, nailH, -nailW / 2, nailH, rr);
+  ctx.arcTo(-nailW / 2, nailH, -nailW / 2, 0, rr);
+  ctx.arcTo(-nailW / 2, 0, nailW / 2, 0, r);
+  ctx.closePath();
+
+  // Fill: real photo image OR gradient/solid color
+  if (imageEl && imageEl.complete && imageEl.naturalWidth > 0) {
+    ctx.save();
+    ctx.clip();
+    ctx.globalAlpha = 0.92;
+    // Cover-fit: scale image to fill nail, center it
+    const imgAspect = imageEl.naturalWidth / imageEl.naturalHeight;
+    const nailAspect = nailW / nailH;
+    let sx = 0, sy = 0, sw = imageEl.naturalWidth, sh = imageEl.naturalHeight;
+    if (imgAspect > nailAspect) {
+      sw = imageEl.naturalHeight * nailAspect;
+      sx = (imageEl.naturalWidth - sw) / 2;
+    } else {
+      sh = imageEl.naturalWidth / nailAspect;
+      sy = (imageEl.naturalHeight - sh) / 2;
+    }
+    ctx.drawImage(imageEl, sx, sy, sw, sh, -nailW / 2, 0, nailW, nailH);
+    ctx.globalAlpha = 1;
+    ctx.restore();
+  } else if (design.gradient && design.colors.length >= 2) {
+    const grd = ctx.createLinearGradient(0, 0, 0, nailH);
+    grd.addColorStop(0, design.colors[0] + 'E0');
+    grd.addColorStop(1, design.colors[1] + 'E0');
+    ctx.fillStyle = grd;
+    ctx.fill();
+  } else {
+    ctx.fillStyle = design.colors[0] + 'E0';
+    ctx.fill();
+  }
+
+  // French tip stripe (only for color mode, not images)
+  if (!imageEl && design.tipColor) {
+    ctx.save();
+    ctx.clip();
+    ctx.fillStyle = design.tipColor + 'CC';
+    ctx.fillRect(-nailW / 2, 0, nailW, nailH * 0.25);
+    ctx.restore();
+
+    // Recreate path for stroke
+    ctx.beginPath();
+    ctx.moveTo(-nailW / 2 + r, 0);
+    ctx.arcTo(nailW / 2, 0, nailW / 2, nailH, r);
+    ctx.arcTo(nailW / 2, nailH, -nailW / 2, nailH, rr);
+    ctx.arcTo(-nailW / 2, nailH, -nailW / 2, 0, rr);
+    ctx.arcTo(-nailW / 2, 0, nailW / 2, 0, r);
+    ctx.closePath();
+  }
+
+  // Gloss highlight
+  ctx.save();
+  ctx.clip();
+  const gloss = ctx.createRadialGradient(
+    -nailW * 0.1, nailH * 0.15, 0,
+    -nailW * 0.1, nailH * 0.15, nailW * 0.4
+  );
+  gloss.addColorStop(0, 'rgba(255,255,255,0.45)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gloss;
+  ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+  ctx.restore();
+
+  // Subtle border
+  ctx.beginPath();
+  ctx.moveTo(-nailW / 2 + r, 0);
+  ctx.arcTo(nailW / 2, 0, nailW / 2, nailH, r);
+  ctx.arcTo(nailW / 2, nailH, -nailW / 2, nailH, rr);
+  ctx.arcTo(-nailW / 2, nailH, -nailW / 2, 0, rr);
+  ctx.arcTo(-nailW / 2, 0, nailW / 2, 0, r);
+  ctx.closePath();
+  ctx.strokeStyle = 'rgba(0,0,0,0.15)';
+  ctx.lineWidth = 0.8;
+  ctx.stroke();
+
+  ctx.restore();
+}
+
+export function NailTryOn() {
+  const navigate = useNavigate();
+  const { designId } = useParams<{ designId: string }>();
+  const { state } = useLocation() as { state: { design?: NailDesign; allDesigns?: NailDesign[] } | null };
+
+  // Design lookup: location state → mock data → first mock
+  const initialDesign = state?.design
+    ?? NAIL_DESIGNS.find(d => d.id === designId)
+    ?? NAIL_DESIGNS[0];
+
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const handsRef = useRef<any>(null);
+  const cameraRef = useRef<any>(null);
+  const animRef = useRef<number>(0);
+  const designImageRef = useRef<HTMLImageElement | null>(null);
+
+  const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'nocamera'>('loading');
+  const [captured, setCaptured] = useState<string | null>(null);
+  const [handDetected, setHandDetected] = useState(false);
+  const [selectedDesign, setSelectedDesign] = useState<NailDesign>(initialDesign);
+  const [pickerDesigns, setPickerDesigns] = useState<NailDesign[]>(
+    state?.allDesigns ?? NAIL_DESIGNS.filter(d => d.popular || d.isNew).slice(0, 6)
+  );
+
+  // Fetch picker designs from API if not provided in state
+  useEffect(() => {
+    if (state?.allDesigns && state.allDesigns.length > 0) return;
+    fetchPublicNailDesigns({ limit: 10 })
+      .then(d => { if (d.length > 0) setPickerDesigns(d.slice(0, 8)); })
+      .catch(() => {});
+  }, []);
+
+  // Pre-load design image when it changes
+  useEffect(() => {
+    if (!selectedDesign.imageUrl) {
+      designImageRef.current = null;
+      return;
+    }
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => { designImageRef.current = img; };
+    img.onerror = () => { designImageRef.current = null; };
+    img.src = selectedDesign.imageUrl;
+  }, [selectedDesign.imageUrl]);
+
+  // Keep canvas buffer dimensions in sync with the container element
+  useEffect(() => {
+    const syncSize = () => {
+      const container = containerRef.current;
+      const canvas = canvasRef.current;
+      if (!container || !canvas) return;
+      const { width, height } = container.getBoundingClientRect();
+      if (canvas.width !== Math.round(width) || canvas.height !== Math.round(height)) {
+        canvas.width = Math.round(width);
+        canvas.height = Math.round(height);
+      }
+    };
+    syncSize();
+    const ro = new ResizeObserver(syncSize);
+    if (containerRef.current) ro.observe(containerRef.current);
+    return () => ro.disconnect();
+  }, []);
+
+  const handleResults = useCallback((results: any) => {
+    const canvas = canvasRef.current;
+    const video = videoRef.current;
+    if (!canvas || !video) return;
+
+    const cw = canvas.width;
+    const ch = canvas.height;
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, cw, ch);
+
+    // Mirror-flip the camera feed (selfie mode)
+    ctx.save();
+    ctx.scale(-1, 1);
+    ctx.drawImage(video, -cw, 0, cw, ch);
+    ctx.restore();
+
+    const detected = results.multiHandLandmarks && results.multiHandLandmarks.length > 0;
+    setHandDetected(detected);
+
+    if (detected) {
+      for (const landmarks of results.multiHandLandmarks) {
+        for (let f = 0; f < 5; f++) {
+          const tip = landmarks[FINGERTIP_IDS[f]];
+          const knuckle = landmarks[KNUCKLE_IDS[f]];
+          if (tip && knuckle) {
+            // Mirror x since we flipped the canvas
+            const mirroredTip    = { x: 1 - tip.x,    y: tip.y };
+            const mirroredKnuckle = { x: 1 - knuckle.x, y: knuckle.y };
+            drawNailOnCanvas(ctx, mirroredTip, mirroredKnuckle, selectedDesign, cw, ch, designImageRef.current);
+          }
+        }
+      }
+    }
+  }, [selectedDesign]);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function init() {
+      try {
+        // Check camera permission first
+        await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' } });
+
+        setStatus('loading');
+
+        // Load MediaPipe from CDN
+        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js');
+        await loadScript('https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js');
+
+        if (cancelled) return;
+
+        const hands = new window.Hands({
+          locateFile: (file: string) =>
+            `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`,
+        });
+
+        hands.setOptions({
+          maxNumHands: 2,
+          modelComplexity: 0,
+          minDetectionConfidence: 0.6,
+          minTrackingConfidence: 0.5,
+        });
+
+        hands.onResults(handleResults);
+        handsRef.current = hands;
+
+        if (videoRef.current && window.Camera) {
+          const cam = new window.Camera(videoRef.current, {
+            onFrame: async () => {
+              if (videoRef.current) await hands.send({ image: videoRef.current });
+            },
+            width: 640,
+            height: 480,
+          });
+          await cam.start();
+          cameraRef.current = cam;
+        }
+
+        if (!cancelled) setStatus('ready');
+      } catch (e: any) {
+        if (cancelled) return;
+        if (e?.name === 'NotAllowedError' || e?.name === 'PermissionDeniedError') {
+          setStatus('nocamera');
+        } else {
+          setStatus('error');
+        }
+      }
+    }
+
+    init();
+
+    return () => {
+      cancelled = true;
+      if (cameraRef.current) {
+        try { cameraRef.current.stop(); } catch {}
+      }
+      if (handsRef.current) {
+        try { handsRef.current.close(); } catch {}
+      }
+      cancelAnimationFrame(animRef.current);
+    };
+  }, []);
+
+  // Re-register results handler when design changes (handleResults has selectedDesign in closure)
+  useEffect(() => {
+    if (handsRef.current) {
+      handsRef.current.onResults(handleResults);
+    }
+  }, [handleResults]);
+
+  const capturePhoto = () => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    setCaptured(canvas.toDataURL('image/png'));
+  };
+
+  const sharePhoto = async () => {
+    if (!captured) return;
+    try {
+      const res = await fetch(captured);
+      const blob = await res.blob();
+      const file = new File([blob], 'nail-look.png', { type: 'image/png' });
+      if (navigator.share && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: `NailAI — ${selectedDesign.name}` });
+      } else {
+        const a = document.createElement('a');
+        a.href = captured;
+        a.download = 'nail-look.png';
+        a.click();
+      }
+    } catch {}
+  };
+
+  return (
+    <div className="phone-shell bg-black flex flex-col" style={{ minHeight: '100dvh' }}>
+      {/* Camera viewport */}
+      <div ref={containerRef} className="relative flex-1 overflow-hidden">
+        <video ref={videoRef} className="absolute inset-0 w-full h-full object-cover opacity-0" playsInline muted />
+        <canvas ref={canvasRef} className="absolute inset-0 w-full h-full object-cover" />
+
+        {/* Loading overlay */}
+        {status === 'loading' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/80 z-10">
+            <div className="w-12 h-12 rounded-full border-2 border-white/20 border-t-white animate-spin mb-4" />
+            <p className="text-white font-semibold text-sm">Activando NailAI...</p>
+            <p className="text-white/50 text-xs mt-1">Cargando detección de manos</p>
+          </div>
+        )}
+
+        {/* Error overlays */}
+        {status === 'nocamera' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0D1B2A] z-10 px-8 text-center">
+            <div className="w-16 h-16 rounded-full bg-white/10 flex items-center justify-center mb-4">
+              <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
+                <path d="M23 19a2 2 0 01-2 2H3a2 2 0 01-2-2V8a2 2 0 012-2h4l2-3h6l2 3h4a2 2 0 012 2z" />
+                <circle cx="12" cy="13" r="4" /><path d="M2 2l20 20" strokeLinecap="round" />
+              </svg>
+            </div>
+            <p className="text-white font-semibold mb-2">Cámara no disponible</p>
+            <p className="text-white/50 text-sm leading-relaxed mb-6">Permite el acceso a la cámara en los ajustes de tu navegador para usar NailAI AR.</p>
+            <button onClick={() => navigate(-1)} className="px-6 py-3 bg-white text-primary rounded-2xl font-semibold text-sm">
+              Volver
+            </button>
+          </div>
+        )}
+
+        {status === 'error' && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-[#0D1B2A] z-10 px-8 text-center">
+            <p className="text-white font-semibold mb-2">No se pudo cargar NailAI</p>
+            <p className="text-white/50 text-sm mb-6">Revisa tu conexión e inténtalo nuevamente.</p>
+            <div className="flex gap-3">
+              <button onClick={() => window.location.reload()} className="px-5 py-3 bg-primary text-white rounded-2xl font-semibold text-sm">
+                Reintentar
+              </button>
+              <button onClick={() => navigate(-1)} className="px-5 py-3 bg-white/10 text-white rounded-2xl font-semibold text-sm">
+                Volver
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Hand detection hint */}
+        {status === 'ready' && !handDetected && (
+          <div className="absolute bottom-4 left-1/2 -translate-x-1/2 bg-black/50 backdrop-blur-sm px-4 py-2.5 rounded-full z-10">
+            <p className="text-white text-xs font-medium text-center">Muestra tu mano a la cámara ✋</p>
+          </div>
+        )}
+
+        {/* Hand detected badge */}
+        {status === 'ready' && handDetected && (
+          <div className="absolute top-safe-top top-4 left-1/2 -translate-x-1/2 bg-primary/80 backdrop-blur-sm px-4 py-1.5 rounded-full z-10">
+            <p className="text-white text-xs font-semibold flex items-center gap-1.5">
+              <span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" />
+              Mano detectada
+            </p>
+          </div>
+        )}
+
+        {/* Top bar */}
+        <div className="absolute top-0 left-0 right-0 z-10 flex items-center justify-between px-4 pt-12 pb-4"
+          style={{ background: 'linear-gradient(to bottom, rgba(0,0,0,0.5), transparent)' }}>
+          <button
+            onClick={() => navigate(-1)}
+            className="w-9 h-9 rounded-full bg-black/30 backdrop-blur-sm flex items-center justify-center active:scale-90 transition-transform"
+          >
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+              <path d="M19 12H5M12 19l-7-7 7-7" strokeLinecap="round" />
+            </svg>
+          </button>
+
+          <div className="text-center">
+            <p className="text-white font-semibold text-sm">{selectedDesign.name}</p>
+            <p className="text-white/60 text-[10px]">{selectedDesign.category}</p>
+          </div>
+
+          <button
+            onClick={() => navigate(`/book?design=${selectedDesign.id}`)}
+            className="px-3 py-1.5 bg-white text-primary text-xs font-bold rounded-full active:scale-95 transition-transform"
+          >
+            Reservar
+          </button>
+        </div>
+
+        {/* Captured photo overlay */}
+        {captured && (
+          <div className="absolute inset-0 z-20 flex flex-col">
+            <img src={captured} className="flex-1 object-cover" alt="captured" />
+            <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 gap-4">
+              <div className="flex gap-3">
+                <button
+                  onClick={sharePhoto}
+                  className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-95 transition-transform shadow-btn"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" strokeLinecap="round" />
+                  </svg>
+                  Compartir
+                </button>
+                <button
+                  onClick={() => navigate(`/book?design=${selectedDesign.id}`)}
+                  className="flex items-center gap-2 px-5 py-3 bg-white text-primary rounded-2xl font-semibold text-sm active:scale-95 transition-transform"
+                >
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#083D42" strokeWidth="2">
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                    <path d="M16 2v4M8 2v4M3 10h18" strokeLinecap="round" />
+                  </svg>
+                  Reservar cita
+                </button>
+              </div>
+              <button
+                onClick={() => setCaptured(null)}
+                className="text-white/70 text-sm font-medium active:opacity-60 transition-opacity"
+              >
+                Volver a la cámara
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Bottom controls */}
+      {!captured && (
+        <div className="shrink-0 bg-[#0D1B2A] px-4 pt-4 pb-8">
+          {/* Design picker */}
+          <div className="flex gap-2.5 overflow-x-auto scrollbar-none pb-3 mb-4">
+            {pickerDesigns.map(d => (
+              <button
+                key={d.id}
+                onClick={() => setSelectedDesign(d)}
+                className="shrink-0 flex flex-col items-center gap-1 active:scale-90 transition-transform"
+              >
+                <div
+                  className={`w-12 h-12 rounded-2xl overflow-hidden transition-all ${
+                    selectedDesign.id === d.id
+                      ? 'ring-2 ring-white ring-offset-1 ring-offset-[#0D1B2A]'
+                      : 'opacity-60'
+                  }`}
+                  style={!d.imageUrl ? {
+                    background: d.gradient
+                      ? `linear-gradient(160deg, ${d.colors[0]}, ${d.colors[1]})`
+                      : d.colors[0]
+                  } : undefined}
+                >
+                  {d.imageUrl
+                    ? <img src={d.imageUrl} className="w-full h-full object-cover" alt={d.name} />
+                    : d.tipColor && <div className="w-full h-3 rounded-t-2xl" style={{ background: d.tipColor, opacity: 0.9 }} />
+                  }
+                </div>
+                <span className="text-[9px] text-white/60 w-12 text-center leading-tight truncate">{d.name}</span>
+              </button>
+            ))}
+            <button
+              onClick={() => navigate('/nail-ai')}
+              className="shrink-0 flex flex-col items-center gap-1"
+            >
+              <div className="w-12 h-12 rounded-2xl border border-white/20 flex items-center justify-center">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="1.5">
+                  <circle cx="11" cy="11" r="8" /><path d="M21 21l-4.35-4.35" strokeLinecap="round" />
+                </svg>
+              </div>
+              <span className="text-[9px] text-white/60">Ver todos</span>
+            </button>
+          </div>
+
+          {/* Capture button */}
+          <div className="flex items-center justify-center">
+            <button
+              onClick={capturePhoto}
+              disabled={status !== 'ready'}
+              className="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
+            >
+              <div className="w-12 h-12 rounded-full bg-white" />
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

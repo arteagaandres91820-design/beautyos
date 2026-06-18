@@ -1,0 +1,55 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: beautyos_db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: beautyos
+      POSTGRES_PASSWORD: beautyos123
+      POSTGRES_DB: beautyos
+    ports:
+      - "5432:5432"
+    volumes:
+      - beautyos_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U beautyos"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  api:
+    build:
+      context: ./apps/api
+      dockerfile: Dockerfile
+    container_name: beautyos_api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DATABASE_URL: postgresql://beautyos:beautyos123@postgres:5432/beautyos
+      JWT_SECRET: beautyos_super_secret_2026
+      PORT: 4000
+      NODE_ENV: production
+      CLOUDINARY_CLOUD_NAME: ${CLOUDINARY_CLOUD_NAME:-}
+      CLOUDINARY_API_KEY: ${CLOUDINARY_API_KEY:-}
+      CLOUDINARY_API_SECRET: ${CLOUDINARY_API_SECRET:-}
+      REPLICATE_API_TOKEN: ${REPLICATE_API_TOKEN:-}
+    ports:
+      - "4000:4000"
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile
+    container_name: beautyos_web
+    restart: unless-stopped
+    depends_on:
+      - api
+    ports:
+      - "3000:80"
+
+volumes:
+  beautyos_pgdata:

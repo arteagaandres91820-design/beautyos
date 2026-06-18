@@ -1,0 +1,421 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+// SQLite: enums as String validated by Prisma
+// SQLite: String[] → String (JSON-encoded)
+
+model Business {
+  id           String   @id @default(cuid())
+  name         String
+  slug         String   @unique @default("")
+  city         String
+  phone        String?
+  email        String   @unique
+  address      String?
+  logo         String?
+  whatsapp     String?
+  openTime       String   @default("09:00")
+  closeTime      String   @default("18:00")
+  slotDuration   Int      @default(30)
+  closedDays     String   @default("[0]")
+  weeklySchedule    String   @default("")
+  messageTemplates  String   @default("[]")  // JSON array of {id,name,body}
+  monthlyRevenueGoal Float  @default(0)    // business-level monthly revenue target
+  expenseBudgets     String @default("{}")  // JSON: {SUPPLIES:500000, RENT:2000000, ...}
+  loyaltyCopPerPoint Float  @default(1000) // COP spent per point earned (e.g. 1000 = $1,000 COP → 1 pt)
+  loyaltyPointValue  Float  @default(100)  // COP value of 1 redeemed point (e.g. 100 = 1 pt → $100 COP)
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  users           User[]
+  clients         Client[]
+  services        Service[]
+  appointments    Appointment[]
+  nailDesigns     NailDesign[]
+  payments        Payment[]
+  bookingRequests BookingRequest[]
+  expenses        Expense[]
+  giftCards       GiftCard[]
+  products        Product[]
+  timeBlocks      TimeBlock[]
+  packages        ServicePackage[]
+  waitlist        Waitlist[]
+  promoCodes      PromoCode[]
+  commissionPayments CommissionPayment[]
+  clientNotes        ClientNote[]
+  clientPackages     ClientPackage[]
+}
+
+model User {
+  id        String   @id @default(cuid())
+  email     String   @unique
+  password  String
+  name      String
+  role      String   @default("PROFESSIONAL")
+  phone     String?
+  avatar    String?
+  workDays      String   @default("[1,2,3,4,5,6]")  // JSON array of day-of-week (0=Sun … 6=Sat)
+  weeklySchedule String  @default("")              // JSON: {0:{open,close,closed}, …} per-day hours
+  commissionPct Float    @default(0)               // % of appointment revenue earned as commission
+  monthlyGoal   Float    @default(0)               // target revenue for the month (0 = no goal)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  businessId   String
+  business     Business           @relation(fields: [businessId], references: [id])
+  appointments Appointment[]
+  timeBlocks   TimeBlock[]
+  commissionPayments CommissionPayment[]
+  clientNotes  ClientNote[]
+}
+
+model Client {
+  id         String    @id @default(cuid())
+  name       String
+  email      String?
+  phone      String
+  birthday   DateTime?
+  photo      String?
+  notes      String?
+  tags       String    @default("[]")  // JSON array of string labels
+  isVip      Boolean   @default(false)
+  visitCount Int       @default(0)
+  points     Int       @default(0)
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  referredById String?
+  referredBy   Client?   @relation("Referrals", fields: [referredById], references: [id])
+  referrals    Client[]  @relation("Referrals")
+
+  businessId   String
+  business     Business      @relation(fields: [businessId], references: [id])
+  appointments  Appointment[]
+  activityNotes ClientNote[]
+  clientPackages ClientPackage[]
+}
+
+model Service {
+  id          String   @id @default(cuid())
+  name        String
+  category    String   @default("OTHER")
+  price       Float
+  duration    Int
+  description String?
+  image       String?
+  isActive    Boolean  @default(true)
+  checklist   String   @default("[]")  // JSON array of step strings
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businessId          String
+  business            Business             @relation(fields: [businessId], references: [id])
+  appointmentServices AppointmentService[]
+  bookingRequests     BookingRequest[]
+  packageServices     PackageService[]
+  serviceProducts     ServiceProduct[]
+}
+
+model Appointment {
+  id        String   @id @default(cuid())
+  date      DateTime
+  startTime String
+  endTime   String
+  status    String   @default("SCHEDULED")
+  notes     String?
+  totalPrice Float   @default(0)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // Propuesta de diseños — JSON array de IDs + diseño aprobado
+  proposedDesigns  String  @default("[]")
+  approvedDesignId String?
+  shareToken       String? @unique
+
+  // Client satisfaction rating (1–5 stars, recorded after service)
+  rating     Int?
+  reviewNote String?
+
+  // Recurring appointments — rule: WEEKLY | BIWEEKLY | MONTHLY | CUSTOM:N (every N days)
+  recurrenceRule    String?
+  recurrenceGroupId String?  // shared ID linking all occurrences in a series
+
+  clientId       String
+  client         Client             @relation(fields: [clientId], references: [id])
+  professionalId String
+  professional   User               @relation(fields: [professionalId], references: [id])
+  businessId     String
+  business       Business           @relation(fields: [businessId], references: [id])
+  services       AppointmentService[]
+  payment        Payment?
+  photos         AppointmentPhoto[]
+}
+
+model AppointmentPhoto {
+  id            String   @id @default(cuid())
+  url           String
+  type          String   @default("AFTER")  // BEFORE | AFTER | OTHER
+  caption       String?
+  createdAt     DateTime @default(now())
+
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+}
+
+model AppointmentService {
+  appointmentId String
+  serviceId     String
+  price         Float
+
+  appointment Appointment @relation(fields: [appointmentId], references: [id], onDelete: Cascade)
+  service     Service     @relation(fields: [serviceId], references: [id])
+
+  @@id([appointmentId, serviceId])
+}
+
+model Payment {
+  id        String   @id @default(cuid())
+  amount    Float
+  tipAmount Float    @default(0)
+  method    String   @default("CASH")
+  notes     String?
+  createdAt DateTime @default(now())
+
+  appointmentId String      @unique
+  appointment   Appointment @relation(fields: [appointmentId], references: [id])
+  businessId    String
+  business      Business    @relation(fields: [businessId], references: [id])
+}
+
+model NailDesign {
+  id          String   @id @default(cuid())
+  name        String
+  category    String   @default("TRENDS_2026")
+  price       Float
+  duration    Int
+  imageUrl    String
+  description String?
+  tags        String   @default("[]")  // JSON array
+  saveCount   Int      @default(0)
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businessId String?
+  business   Business? @relation(fields: [businessId], references: [id])
+}
+
+model Expense {
+  id          String   @id @default(cuid())
+  date        DateTime @default(now())
+  amount      Float
+  category    String   @default("SUPPLIES")
+  description String
+  createdAt   DateTime @default(now())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+model GiftCard {
+  id            String   @id @default(cuid())
+  code          String   @unique
+  amount        Float    // original face value
+  balance       Float    // remaining balance
+  recipientName String?
+  notes         String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  usedAt        DateTime?
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+model Product {
+  id          String   @id @default(cuid())
+  name        String
+  brand       String?
+  category    String   @default("OTHER")  // NAIL_POLISH, ACRYLIC, GEL, HAIR_COLOR, TOOLS, SKINCARE, OTHER
+  unit        String   @default("un")     // un, ml, g, kg, L, caja
+  stock       Float    @default(0)
+  minStock    Float    @default(0)        // low-stock alert threshold
+  costPrice   Float    @default(0)
+  notes       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  movements  StockMovement[]
+  serviceProducts ServiceProduct[]
+}
+
+model StockMovement {
+  id          String   @id @default(cuid())
+  type        String   @default("IN")   // IN (restock) | OUT (consumption) | ADJUST
+  quantity    Float
+  notes       String?
+  createdAt   DateTime @default(now())
+
+  productId  String
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+  userId     String?  // who logged it
+}
+
+model ServiceProduct {
+  serviceId  String
+  productId  String
+  quantity   Float    @default(1)   // units consumed per service
+
+  service    Service  @relation(fields: [serviceId], references: [id], onDelete: Cascade)
+  product    Product  @relation(fields: [productId], references: [id], onDelete: Cascade)
+
+  @@id([serviceId, productId])
+}
+
+model ServicePackage {
+  id          String   @id @default(cuid())
+  name        String
+  description String?
+  price       Float    // fixed bundle price (usually less than sum of individual services)
+  duration    Int      // total estimated duration in minutes
+  image       String?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+  services   PackageService[]
+  clientPackages ClientPackage[]
+}
+
+model PackageService {
+  packageId String
+  serviceId String
+  package   ServicePackage @relation(fields: [packageId], references: [id], onDelete: Cascade)
+  service   Service        @relation(fields: [serviceId], references: [id])
+
+  @@id([packageId, serviceId])
+}
+
+model TimeBlock {
+  id        String   @id @default(cuid())
+  date      DateTime
+  startTime String   // "HH:MM" or "00:00" for full-day
+  endTime   String   // "HH:MM" or "23:59" for full-day
+  reason    String?
+  isFullDay Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+// Solicitudes de cita desde la app cliente (sin auth)
+model Waitlist {
+  id        String   @id @default(cuid())
+  clientName String
+  clientPhone String
+  date      String   // YYYY-MM-DD
+  timeSlot  String?  // HH:MM preferred, nullable = any time
+  notes     String?
+  status    String   @default("WAITING")  // WAITING | NOTIFIED | BOOKED | CANCELLED
+  createdAt DateTime @default(now())
+
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+model PromoCode {
+  id          String   @id @default(cuid())
+  code        String   // human-readable, e.g. "VERANO20"
+  description String?
+  type        String   @default("PERCENT")  // PERCENT | FIXED
+  value       Float    // percent (0–100) or fixed COP amount
+  maxUses     Int?     // null = unlimited
+  usedCount   Int      @default(0)
+  expiresAt   DateTime?
+  isActive    Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  businessId  String
+  business    Business @relation(fields: [businessId], references: [id])
+
+  @@unique([businessId, code])
+}
+
+model ClientNote {
+  id        String   @id @default(cuid())
+  body      String
+  type      String   @default("NOTE")  // NOTE | CALL | MESSAGE | FOLLOWUP | ALERT
+  createdAt DateTime @default(now())
+
+  clientId   String
+  client     Client  @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  authorId   String?
+  author     User?   @relation(fields: [authorId], references: [id])
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+model CommissionPayment {
+  id         String   @id @default(cuid())
+  amount     Float
+  notes      String?
+  periodFrom DateTime
+  periodTo   DateTime
+  paidAt     DateTime @default(now())
+
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  businessId String
+  business   Business @relation(fields: [businessId], references: [id])
+}
+
+// Client has purchased a service package and tracks remaining sessions
+model ClientPackage {
+  id             String   @id @default(cuid())
+  sessionsTotal  Int      // how many sessions in the package
+  sessionsUsed   Int      @default(0)
+  purchasedAt    DateTime @default(now())
+  expiresAt      DateTime?
+  notes          String?
+
+  clientId    String
+  client      Client         @relation(fields: [clientId], references: [id], onDelete: Cascade)
+  packageId   String
+  package     ServicePackage @relation(fields: [packageId], references: [id])
+  businessId  String
+  business    Business       @relation(fields: [businessId], references: [id])
+}
+
+model BookingRequest {
+  id          String   @id @default(cuid())
+  clientName  String
+  clientPhone String
+  clientEmail String?
+  date        String   // YYYY-MM-DD
+  timeSlot    String   // HH:MM
+  notes       String?
+  status      String   @default("PENDING")
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  serviceId  String?
+  service    Service?  @relation(fields: [serviceId], references: [id])
+  serviceIds String    @default("[]")  // JSON array of service IDs for multi-service bookings
+  businessId String
+  business   Business  @relation(fields: [businessId], references: [id])
+}

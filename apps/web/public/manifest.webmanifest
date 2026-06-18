@@ -1,0 +1,22 @@
+{
+  "name": "BeautyOS",
+  "short_name": "BeautyOS",
+  "description": "Tu salón de belleza en tu bolsillo",
+  "start_url": "/cliente",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#F0FAFA",
+  "theme_color": "#2DC7B3",
+  "icons": [
+    {
+      "src": "/favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["beauty", "lifestyle", "shopping"],
+  "lang": "es",
+  "dir": "ltr"
+}
