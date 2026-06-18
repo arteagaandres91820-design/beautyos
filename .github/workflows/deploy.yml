@@ -24,21 +24,18 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
-          cache: npm
-          cache-dependency-path: apps/consumer/package-lock.json
+          node-version: 22
 
-      - name: Install
-        run: npm ci
-        working-directory: apps/consumer
+      - name: Install (monorepo root)
+        run: npm install
 
-      - name: Build
+      - name: Build consumer
         run: npm run build
         working-directory: apps/consumer
         env:
           NODE_ENV: production
 
-      - name: Copy index as 404 (SPA routing)
+      - name: SPA routing fix
         run: cp apps/consumer/dist/index.html apps/consumer/dist/404.html
 
       - uses: actions/configure-pages@v4
