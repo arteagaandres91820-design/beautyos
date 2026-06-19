@@ -326,7 +326,7 @@ function drawNailOnCanvas(
   ctx.restore();
 }
 
-const HF_TOKEN: string | undefined = import.meta.env.VITE_HF_TOKEN;
+const HF_TOKEN: string | undefined = (import.meta as any).env?.VITE_HF_TOKEN;
 
 function loadImg(src: string): Promise<HTMLImageElement> {
   return new Promise((res, rej) => {
