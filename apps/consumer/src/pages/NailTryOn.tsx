@@ -441,10 +441,11 @@ export function NailTryOn() {
   const animRef = useRef<number>(0);
   const designImageRef = useRef<HTMLImageElement | null>(null);
 
+  const frozenRef = useRef(false);
+
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'nocamera'>('loading');
-  const [captured, setCaptured] = useState<string | null>(null);
+  const [frozen, setFrozen] = useState(false);
   const [processing, setProcessing] = useState(false);
-  const [segmentError, setSegmentError] = useState(false);
   const [handDetected, setHandDetected] = useState(false);
   const [selectedDesign, setSelectedDesign] = useState<NailDesign>(initialDesign);
   const [pickerDesigns, setPickerDesigns] = useState<NailDesign[]>(
@@ -491,6 +492,7 @@ export function NailTryOn() {
   }, []);
 
   const handleResults = useCallback((results: any) => {
+    if (frozenRef.current) return;
     const canvas = canvasRef.current;
     const video = videoRef.current;
     if (!canvas || !video) return;
@@ -604,50 +606,53 @@ export function NailTryOn() {
   }, [handleResults]);
 
   const capturePhoto = () => {
+    frozenRef.current = true;
+    setFrozen(true);
+  };
+
+  const resumeCamera = () => {
+    frozenRef.current = false;
+    setFrozen(false);
+  };
+
+  const sharePhoto = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    canvas.toBlob(
-      blob => {
-        if (!blob) return;
-        // revoke previous object URL to avoid memory leaks
-        setCaptured(prev => { if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
-      },
-      'image/jpeg',
-      0.92
-    );
+    canvas.toBlob(async blob => {
+      if (!blob) return;
+      try {
+        const file = new File([blob], 'nail-look.jpg', { type: 'image/jpeg' });
+        if (navigator.share && navigator.canShare({ files: [file] })) {
+          await navigator.share({ files: [file], title: `NailAI — ${selectedDesign.name}` });
+        } else {
+          const url = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = url; a.download = 'nail-look.jpg'; a.click();
+          URL.revokeObjectURL(url);
+        }
+      } catch {}
+    }, 'image/jpeg', 0.92);
   };
 
   const enhanceWithAI = async () => {
-    if (!captured || !HF_TOKEN) return;
+    const canvas = canvasRef.current;
+    if (!canvas || !HF_TOKEN) return;
     setProcessing(true);
-    setSegmentError(false);
     try {
-      const blob = await (await fetch(captured)).blob();
+      const blob = await new Promise<Blob>(res => canvas.toBlob(b => res(b!), 'image/jpeg', 0.92));
       const masks = await callHFSegment(blob);
-      const result = await buildSegmentedResult(captured, masks, selectedDesign, designImageRef.current);
-      setCaptured(result);
+      const dataUrl = canvas.toDataURL('image/jpeg');
+      const result = await buildSegmentedResult(dataUrl, masks, selectedDesign, designImageRef.current);
+      // Dibuja el resultado de HF de vuelta al canvas congelado
+      const img = await loadImg(result);
+      const ctx = canvas.getContext('2d')!;
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(img, 0, 0);
     } catch {
-      setSegmentError(true);
+      // silently fail — canvas keeps current frame
     } finally {
       setProcessing(false);
     }
-  };
-
-  const sharePhoto = async () => {
-    if (!captured) return;
-    try {
-      const res = await fetch(captured);
-      const blob = await res.blob();
-      const file = new File([blob], 'nail-look.png', { type: 'image/png' });
-      if (navigator.share && navigator.canShare({ files: [file] })) {
-        await navigator.share({ files: [file], title: `NailAI — ${selectedDesign.name}` });
-      } else {
-        const a = document.createElement('a');
-        a.href = captured;
-        a.download = 'nail-look.png';
-        a.click();
-      }
-    } catch {}
   };
 
   return (
@@ -749,62 +754,54 @@ export function NailTryOn() {
           </div>
         )}
 
-        {/* Captured photo overlay */}
-        {captured && (
-          <div className="absolute inset-0 z-20 flex flex-col">
-            <img src={captured} className="flex-1 object-cover" alt="captured" />
-            {segmentError && (
-              <div className="absolute top-14 left-4 right-4 bg-yellow-500/20 border border-yellow-500/40 rounded-xl px-3 py-2 text-yellow-300 text-xs text-center">
-                Sin conexión a IA — mostrando vista previa estándar
-              </div>
-            )}
-            <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 gap-3">
-              {/* Mejorar con IA */}
-              {HF_TOKEN && !processing && (
-                <button
-                  onClick={enhanceWithAI}
-                  className="flex items-center gap-2 px-5 py-2.5 bg-white/15 backdrop-blur-sm border border-white/30 text-white rounded-2xl font-semibold text-sm active:scale-95 transition-transform"
-                >
-                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                    <path d="M12 2l2 5h5l-4 3 2 5-5-3-5 3 2-5-4-3h5z" />
-                  </svg>
-                  Mejorar con IA
-                </button>
-              )}
-              <div className="flex gap-3">
-                <button
-                  onClick={sharePhoto}
-                  className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-95 transition-transform shadow-btn"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
-                    <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" strokeLinecap="round" />
-                  </svg>
-                  Compartir
-                </button>
-                <button
-                  onClick={() => navigate(`/book?design=${selectedDesign.id}`)}
-                  className="flex items-center gap-2 px-5 py-3 bg-white text-primary rounded-2xl font-semibold text-sm active:scale-95 transition-transform"
-                >
-                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#083D42" strokeWidth="2">
-                    <rect x="3" y="4" width="18" height="18" rx="2" />
-                    <path d="M16 2v4M8 2v4M3 10h18" strokeLinecap="round" />
-                  </svg>
-                  Reservar cita
-                </button>
-              </div>
+        {/* Frozen overlay — buttons over the frozen canvas (no separate image needed) */}
+        {frozen && (
+          <div className="absolute inset-0 z-20 flex flex-col items-center justify-end pb-8 gap-3"
+            style={{ background: 'linear-gradient(to top, rgba(0,0,0,0.55) 0%, transparent 45%)' }}>
+            {HF_TOKEN && !processing && (
               <button
-                onClick={() => setCaptured(null)}
-                className="text-white/70 text-sm font-medium active:opacity-60 transition-opacity"
+                onClick={enhanceWithAI}
+                className="flex items-center gap-2 px-5 py-2.5 bg-white/15 backdrop-blur-sm border border-white/30 text-white rounded-2xl font-semibold text-sm active:scale-95 transition-transform"
               >
-                Volver a la cámara
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                  <path d="M12 2l2 5h5l-4 3 2 5-5-3-5 3 2-5-4-3h5z" />
+                </svg>
+                Mejorar con IA
+              </button>
+            )}
+            <div className="flex gap-3">
+              <button
+                onClick={sharePhoto}
+                className="flex items-center gap-2 px-5 py-3 bg-primary text-white rounded-2xl font-semibold text-sm active:scale-95 transition-transform shadow-btn"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                  <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" strokeLinecap="round" />
+                </svg>
+                Compartir
+              </button>
+              <button
+                onClick={() => navigate(`/book?design=${selectedDesign.id}`)}
+                className="flex items-center gap-2 px-5 py-3 bg-white text-primary rounded-2xl font-semibold text-sm active:scale-95 transition-transform"
+              >
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#083D42" strokeWidth="2">
+                  <rect x="3" y="4" width="18" height="18" rx="2" />
+                  <path d="M16 2v4M8 2v4M3 10h18" strokeLinecap="round" />
+                </svg>
+                Reservar cita
               </button>
             </div>
+            <button
+              onClick={resumeCamera}
+              className="text-white/70 text-sm font-medium active:opacity-60 transition-opacity"
+            >
+              Volver a la cámara
+            </button>
           </div>
         )}
       </div>
 
       {/* Bottom controls */}
-      {!captured && (
+      {!frozen && (
         <div className="shrink-0 bg-[#0D1B2A] px-4 pt-4 pb-8">
           {/* Design picker */}
           <div className="flex gap-2.5 overflow-x-auto scrollbar-none pb-3 mb-4">
@@ -851,7 +848,7 @@ export function NailTryOn() {
           <div className="flex items-center justify-center">
             <button
               onClick={capturePhoto}
-              disabled={status !== 'ready' || processing}
+              disabled={status !== 'ready' || processing || frozen}
               className="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
             >
               <div className="w-12 h-12 rounded-full bg-white" />
