@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { useNavigate, useParams, useLocation } from 'react-router-dom';
-import { NAIL_DESIGNS, type NailDesign } from '../data/nailDesigns';
+import { NAIL_DESIGNS, type NailDesign, type NailPattern } from '../data/nailDesigns';
 import { fetchPublicNailDesigns } from '../lib/api';
 
 // MediaPipe typings (loaded from CDN at runtime)
@@ -26,6 +26,174 @@ function loadScript(src: string): Promise<void> {
     s.onerror = reject;
     document.head.appendChild(s);
   });
+}
+
+function drawPattern(
+  ctx: CanvasRenderingContext2D,
+  patternType: NailPattern,
+  colors: string[],
+  nailW: number,
+  nailH: number
+) {
+  switch (patternType) {
+    case 'chrome': {
+      const g = ctx.createLinearGradient(-nailW / 2, nailH * 0.1, nailW / 2, nailH * 0.6);
+      g.addColorStop(0,    'rgba(90,90,100,0.92)');
+      g.addColorStop(0.25, 'rgba(190,190,200,0.92)');
+      g.addColorStop(0.5,  'rgba(255,255,255,0.96)');
+      g.addColorStop(0.75, 'rgba(170,170,185,0.92)');
+      g.addColorStop(1,    'rgba(110,110,125,0.90)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      // second diagonal band for mirror sparkle
+      const g2 = ctx.createLinearGradient(nailW / 2, 0, -nailW / 2, nailH * 0.4);
+      g2.addColorStop(0, 'rgba(255,255,255,0)');
+      g2.addColorStop(0.4, 'rgba(255,255,255,0.18)');
+      g2.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = g2;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      break;
+    }
+    case 'aurora': {
+      const g = ctx.createLinearGradient(-nailW * 0.4, 0, nailW * 0.8, nailH);
+      g.addColorStop(0,    'rgba(167,139,250,0.90)');
+      g.addColorStop(0.18, 'rgba(96,165,250,0.88)');
+      g.addColorStop(0.36, 'rgba(52,211,153,0.88)');
+      g.addColorStop(0.54, 'rgba(251,191,36,0.82)');
+      g.addColorStop(0.72, 'rgba(244,114,182,0.88)');
+      g.addColorStop(0.9,  'rgba(167,139,250,0.90)');
+      g.addColorStop(1,    'rgba(96,165,250,0.88)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      break;
+    }
+    case 'glazed': {
+      const g = ctx.createRadialGradient(0, nailH * 0.38, 0, 0, nailH * 0.38, nailW * 0.9);
+      g.addColorStop(0,   'rgba(255,255,255,0.96)');
+      g.addColorStop(0.3, 'rgba(255,230,235,0.80)');
+      g.addColorStop(0.6, 'rgba(255,200,210,0.72)');
+      g.addColorStop(1,   'rgba(220,160,170,0.65)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      // pearl shimmer streak
+      const streak = ctx.createLinearGradient(-nailW * 0.3, nailH * 0.2, nailW * 0.3, nailH * 0.5);
+      streak.addColorStop(0, 'rgba(255,255,255,0)');
+      streak.addColorStop(0.5, 'rgba(255,255,255,0.35)');
+      streak.addColorStop(1, 'rgba(255,255,255,0)');
+      ctx.fillStyle = streak;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      break;
+    }
+    case 'marble': {
+      // white base
+      ctx.fillStyle = 'rgba(248,248,248,0.97)';
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      // grey veins
+      ctx.strokeStyle = 'rgba(170,170,170,0.48)';
+      ctx.lineWidth = nailW * 0.045;
+      ctx.lineCap = 'round';
+      ctx.beginPath();
+      ctx.moveTo(-nailW * 0.28, 0);
+      ctx.bezierCurveTo(nailW * 0.08, nailH * 0.22, -nailW * 0.12, nailH * 0.52, nailW * 0.22, nailH);
+      ctx.stroke();
+      ctx.strokeStyle = 'rgba(140,140,140,0.30)';
+      ctx.lineWidth = nailW * 0.022;
+      ctx.beginPath();
+      ctx.moveTo(nailW * 0.12, 0);
+      ctx.bezierCurveTo(-nailW * 0.18, nailH * 0.33, nailW * 0.28, nailH * 0.62, nailW * 0.06, nailH);
+      ctx.stroke();
+      // gold vein
+      ctx.strokeStyle = 'rgba(200,168,95,0.38)';
+      ctx.lineWidth = nailW * 0.016;
+      ctx.beginPath();
+      ctx.moveTo(-nailW * 0.08, nailH * 0.18);
+      ctx.bezierCurveTo(nailW * 0.18, nailH * 0.38, -nailW * 0.04, nailH * 0.68, nailW * 0.14, nailH * 0.92);
+      ctx.stroke();
+      break;
+    }
+    case 'holographic': {
+      const g = ctx.createLinearGradient(-nailW / 2, 0, nailW / 2, nailH * 0.35);
+      g.addColorStop(0,    'rgba(255,90,90,0.88)');
+      g.addColorStop(0.14, 'rgba(255,175,45,0.88)');
+      g.addColorStop(0.28, 'rgba(255,255,70,0.86)');
+      g.addColorStop(0.42, 'rgba(80,255,100,0.86)');
+      g.addColorStop(0.57, 'rgba(70,145,255,0.88)');
+      g.addColorStop(0.71, 'rgba(145,75,255,0.88)');
+      g.addColorStop(0.85, 'rgba(255,95,195,0.88)');
+      g.addColorStop(1,    'rgba(255,90,90,0.88)');
+      ctx.fillStyle = g;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      // repeat band shifted
+      const g2 = ctx.createLinearGradient(nailW / 2, nailH * 0.35, -nailW / 2, nailH);
+      g2.addColorStop(0,    'rgba(255,90,90,0.55)');
+      g2.addColorStop(0.25, 'rgba(80,255,100,0.55)');
+      g2.addColorStop(0.5,  'rgba(70,145,255,0.55)');
+      g2.addColorStop(0.75, 'rgba(255,95,195,0.55)');
+      g2.addColorStop(1,    'rgba(255,90,90,0.55)');
+      ctx.fillStyle = g2;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      break;
+    }
+    case 'aura': {
+      const c0 = colors[0] || '#FBCFE8';
+      const c1 = colors[1] || '#A78BFA';
+      const g = ctx.createRadialGradient(0, nailH * 0.5, nailW * 0.04, 0, nailH * 0.5, nailW * 0.75);
+      g.addColorStop(0,   'rgba(255,255,255,0.92)');
+      g.addColorStop(0.25, c0 + '60');
+      g.addColorStop(0.55, c1 + '90');
+      g.addColorStop(0.8,  c0 + 'B8');
+      g.addColorStop(1,    c1 + 'D0');
+      ctx.fillStyle = g;
+      ctx.fillRect(-nailW / 2, 0, nailW, nailH);
+      break;
+    }
+    case 'glitter': {
+      // deterministic sparkle dots using golden ratio sequence
+      for (let s = 0; s < 28; s++) {
+        const sx = (-nailW / 2) + nailW * ((s * 0.618034) % 1);
+        const sy = nailH * ((s * 0.381966) % 1);
+        const sr = nailW * (0.014 + 0.026 * ((s * 0.7265) % 1));
+        ctx.beginPath();
+        ctx.arc(sx, sy, sr, 0, Math.PI * 2);
+        ctx.fillStyle = `rgba(255,215,0,${0.38 + 0.50 * ((s * 0.5) % 1)})`;
+        ctx.fill();
+        if (s % 4 === 0) {
+          ctx.strokeStyle = 'rgba(255,255,255,0.72)';
+          ctx.lineWidth = sr * 0.5;
+          ctx.beginPath();
+          ctx.moveTo(sx - sr * 1.6, sy); ctx.lineTo(sx + sr * 1.6, sy);
+          ctx.moveTo(sx, sy - sr * 1.6); ctx.lineTo(sx, sy + sr * 1.6);
+          ctx.stroke();
+        }
+      }
+      break;
+    }
+    case 'floral': {
+      const flowers = [
+        { x: 0,          y: nailH * 0.28, r: nailW * 0.12 },
+        { x: nailW * 0.17,  y: nailH * 0.65, r: nailW * 0.09 },
+        { x: -nailW * 0.15, y: nailH * 0.70, r: nailW * 0.07 },
+      ];
+      for (const fl of flowers) {
+        for (let p = 0; p < 5; p++) {
+          const pa = (p / 5) * Math.PI * 2;
+          ctx.beginPath();
+          ctx.ellipse(
+            fl.x + Math.cos(pa) * fl.r,
+            fl.y + Math.sin(pa) * fl.r,
+            fl.r, fl.r * 0.55, pa, 0, Math.PI * 2
+          );
+          ctx.fillStyle = 'rgba(255,255,255,0.84)';
+          ctx.fill();
+        }
+        ctx.beginPath();
+        ctx.arc(fl.x, fl.y, fl.r * 0.30, 0, Math.PI * 2);
+        ctx.fillStyle = 'rgba(255,218,95,0.94)';
+        ctx.fill();
+      }
+      break;
+    }
+  }
 }
 
 function drawNailOnCanvas(
@@ -95,6 +263,21 @@ function drawNailOnCanvas(
   } else {
     ctx.fillStyle = design.colors[0] + 'E0';
     ctx.fill();
+  }
+
+  // Pattern overlay (clipped to nail shape, drawn on top of base fill)
+  if (!imageEl && design.patternType) {
+    ctx.save();
+    ctx.beginPath();
+    ctx.moveTo(-nailW / 2 + r, 0);
+    ctx.arcTo(nailW / 2, 0, nailW / 2, nailH, r);
+    ctx.arcTo(nailW / 2, nailH, -nailW / 2, nailH, rr);
+    ctx.arcTo(-nailW / 2, nailH, -nailW / 2, 0, rr);
+    ctx.arcTo(-nailW / 2, 0, nailW / 2, 0, r);
+    ctx.closePath();
+    ctx.clip();
+    drawPattern(ctx, design.patternType, design.colors, nailW, nailH);
+    ctx.restore();
   }
 
   // French tip stripe (only for color mode, not images)

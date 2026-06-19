@@ -1,5 +1,6 @@
 export type NailShape = 'oval' | 'square' | 'almond' | 'stiletto' | 'coffin';
 export type NailCategory = 'Todos' | 'French' | 'Colores' | 'Ombré' | 'Tendencias' | 'Temporada';
+export type NailPattern = 'chrome' | 'aurora' | 'glazed' | 'marble' | 'holographic' | 'aura' | 'glitter' | 'floral';
 
 export interface NailDesign {
   id: string;
@@ -9,6 +10,7 @@ export interface NailDesign {
   colors: string[];
   tipColor?: string;
   gradient?: boolean;
+  patternType?: NailPattern;
   tags: string[];
   popular?: boolean;
   isNew?: boolean;
@@ -21,7 +23,7 @@ export interface NailDesign {
 export const NAIL_DESIGNS: NailDesign[] = [
   {
     id: 'nd1', name: 'Aurora Boreal', category: 'Tendencias', shape: 'almond',
-    colors: ['#A78BFA', '#34D399'], gradient: true,
+    colors: ['#A78BFA', '#34D399'], gradient: true, patternType: 'aurora',
     tags: ['aurora', 'viral', 'iridiscente', 'tendencia'], popular: true, isNew: true,
     description: 'Efecto aurora boreal multicolor difuminado — el diseño más viral del año',
     price: 75000, duration: 75,
@@ -35,14 +37,14 @@ export const NAIL_DESIGNS: NailDesign[] = [
   },
   {
     id: 'nd3', name: 'Chrome Espejo', category: 'Tendencias', shape: 'coffin',
-    colors: ['#C0C0C0', '#E8E8FF'], gradient: true,
+    colors: ['#C0C0C0', '#E8E8FF'], gradient: true, patternType: 'chrome',
     tags: ['chrome', 'espejo', 'metalico', 'plata'], popular: true, isNew: true,
     description: 'Polvo chrome plateado sobre base nude — efecto espejo perfecto',
     price: 80000, duration: 80,
   },
   {
     id: 'nd4', name: 'Glazed Donut', category: 'Tendencias', shape: 'oval',
-    colors: ['#FEE2E2', '#FECACA'], gradient: true,
+    colors: ['#FEE2E2', '#FECACA'], gradient: true, patternType: 'glazed',
     tags: ['glazed', 'glossy', 'viral', 'hailey'], popular: true,
     description: 'El glazed nails viral de Hailey Bieber — efecto espejo rosado perlado',
     price: 65000, duration: 70,
@@ -56,7 +58,7 @@ export const NAIL_DESIGNS: NailDesign[] = [
   },
   {
     id: 'nd6', name: 'Aura Nails', category: 'Tendencias', shape: 'oval',
-    colors: ['#FBCFE8', '#A78BFA'], gradient: true,
+    colors: ['#FBCFE8', '#A78BFA'], gradient: true, patternType: 'aura',
     tags: ['aura', 'difuminado', 'pastel', 'tendencia'], isNew: true,
     description: 'Técnica aura: color difuminado desde el centro hacia los bordes',
     price: 72000, duration: 70,
@@ -77,14 +79,14 @@ export const NAIL_DESIGNS: NailDesign[] = [
   },
   {
     id: 'nd9', name: 'Marble White', category: 'Tendencias', shape: 'coffin',
-    colors: ['#F8F8F8', '#E5E5E5'],
+    colors: ['#F8F8F8', '#E5E5E5'], patternType: 'marble',
     tags: ['mármol', 'blanco', 'elegante', 'minimalista'], isNew: true,
     description: 'Mármol blanco pintado a mano con venas grises y doradas',
     price: 75000, duration: 80,
   },
   {
     id: 'nd10', name: 'Y2K Holográfico', category: 'Tendencias', shape: 'square',
-    colors: ['#E040FB', '#40C4FF'], gradient: true,
+    colors: ['#E040FB', '#40C4FF'], gradient: true, patternType: 'holographic',
     tags: ['y2k', 'holografico', 'brillante', 'retro', '2000s'], isNew: true,
     description: 'Efecto holográfico arcoíris inspirado en la estética Y2K',
     price: 78000, duration: 75,
@@ -105,7 +107,7 @@ export const NAIL_DESIGNS: NailDesign[] = [
   },
   {
     id: 'nd13', name: 'Flores 3D', category: 'Tendencias', shape: 'almond',
-    colors: ['#FDE68A', '#FCA5A5'], gradient: true,
+    colors: ['#FDE68A', '#FCA5A5'], gradient: true, patternType: 'floral',
     tags: ['flores', '3d', 'artístico', 'primavera', 'gel'], popular: true, isNew: true,
     description: 'Flores volumétricas 3D en gel hechas a mano sobre base pastel',
     price: 95000, duration: 100,
@@ -119,7 +121,7 @@ export const NAIL_DESIGNS: NailDesign[] = [
   },
   {
     id: 'nd15', name: 'Navidad Glitter', category: 'Temporada', shape: 'oval',
-    colors: ['#1B5E20', '#B71C1C'],
+    colors: ['#1B5E20', '#B71C1C'], patternType: 'glitter',
     tags: ['navidad', 'glitter', 'rojo', 'verde', 'festivo'],
     description: 'Rojo y verde con glitter dorado — glamour navideño irresistible',
     price: 70000, duration: 70,
