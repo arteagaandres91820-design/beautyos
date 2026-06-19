@@ -476,6 +476,7 @@ export function NailTryOn() {
   // Keep canvas buffer dimensions in sync with the container element
   useEffect(() => {
     const syncSize = () => {
+      if (frozenRef.current) return; // canvas resize clears content — skip while frozen
       const container = containerRef.current;
       const canvas = canvasRef.current;
       if (!container || !canvas) return;

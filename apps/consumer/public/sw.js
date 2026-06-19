@@ -1,4 +1,4 @@
-const CACHE = 'beautyos-v2';
+const CACHE = 'beautyos-v3';
 const PRECACHE = ['/', '/index.html'];
 
 self.addEventListener('install', e => {
