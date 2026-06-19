@@ -359,41 +359,48 @@ function greyMaskToAlpha(maskImg: HTMLImageElement, w: number, h: number): HTMLC
   const mctx = mc.getContext('2d')!;
   mctx.drawImage(maskImg, 0, 0, w, h);
   const px = mctx.getImageData(0, 0, w, h);
+  let whitePixels = 0;
   for (let i = 0; i < px.data.length; i += 4) {
-    const lum = (px.data[i] * 0.299 + px.data[i + 1] * 0.587 + px.data[i + 2] * 0.114);
+    const lum = px.data[i] * 0.299 + px.data[i + 1] * 0.587 + px.data[i + 2] * 0.114;
+    if (lum > 128) whitePixels++;
     px.data[i] = px.data[i + 1] = px.data[i + 2] = 255;
-    px.data[i + 3] = lum; // brillo → alpha: blanco=uña, negro=fondo transparente
+    px.data[i + 3] = lum;
   }
   mctx.putImageData(px, 0, 0);
+  (mc as any)._coverage = whitePixels / (w * h);
   return mc;
 }
 
 async function buildSegmentedResult(
-  photoDataUrl: string,
+  cleanPhotoDataUrl: string,
   masks: Array<{ label: string; mask: string; score: number }>,
   design: NailDesign,
   designImg: HTMLImageElement | null
 ): Promise<string> {
-  const photo = await loadImg(photoDataUrl);
+  const photo = await loadImg(cleanPhotoDataUrl);
   const out = document.createElement('canvas');
   out.width = photo.naturalWidth;
   out.height = photo.naturalHeight;
   const ctx = out.getContext('2d')!;
   ctx.drawImage(photo, 0, 0);
 
-  const nailMasks = masks.filter(m => m.label.toLowerCase().includes('nail') && m.score > 0.35);
-  if (nailMasks.length === 0) return photoDataUrl;
+  // Aceptar cualquier label (el modelo tiene: nail / background)
+  const nailMasks = masks.filter(m =>
+    !m.label.toLowerCase().includes('background') && m.score > 0.3
+  );
+  if (nailMasks.length === 0) return cleanPhotoDataUrl;
 
   for (const md of nailMasks) {
     const maskImg = await loadImg(`data:image/png;base64,${md.mask}`);
-    // Convertir máscara gris a canal alpha (negro opaco → transparente)
     const alphaMask = greyMaskToAlpha(maskImg, out.width, out.height);
+
+    // Descartar máscara si cubre más del 40 % de la imagen (segmentación errónea)
+    if ((alphaMask as any)._coverage > 0.40) continue;
 
     const dl = document.createElement('canvas');
     dl.width = out.width; dl.height = out.height;
     const dc = dl.getContext('2d')!;
 
-    // Capa de diseño
     if (designImg) {
       dc.drawImage(designImg, 0, 0, dl.width, dl.height);
     } else if (design.gradient && design.colors.length >= 2) {
@@ -404,16 +411,14 @@ async function buildSegmentedResult(
       dc.fillStyle = design.colors[0]; dc.fillRect(0, 0, dl.width, dl.height);
     }
 
-    // Brillo
     const gloss = dc.createRadialGradient(dl.width * 0.3, dl.height * 0.18, 0, dl.width * 0.3, dl.height * 0.18, dl.width * 0.6);
-    gloss.addColorStop(0, 'rgba(255,255,255,0.40)'); gloss.addColorStop(1, 'rgba(255,255,255,0)');
+    gloss.addColorStop(0, 'rgba(255,255,255,0.38)'); gloss.addColorStop(1, 'rgba(255,255,255,0)');
     dc.fillStyle = gloss; dc.fillRect(0, 0, dl.width, dl.height);
 
-    // Recortar capa al contorno exacto de la uña
     dc.globalCompositeOperation = 'destination-in';
     dc.drawImage(alphaMask, 0, 0);
 
-    ctx.globalAlpha = 0.92; ctx.drawImage(dl, 0, 0); ctx.globalAlpha = 1;
+    ctx.globalAlpha = 0.88; ctx.drawImage(dl, 0, 0); ctx.globalAlpha = 1;
   }
   return out.toDataURL('image/png');
 }
@@ -600,22 +605,33 @@ export function NailTryOn() {
 
   const capturePhoto = async () => {
     const canvas = canvasRef.current;
+    const video = videoRef.current;
     if (!canvas) return;
-    const dataUrl = canvas.toDataURL('image/png');
 
-    if (!HF_TOKEN) { setCaptured(dataUrl); return; }
+    // Foto con overlay (fallback visual si HF falla)
+    const overlayDataUrl = canvas.toDataURL('image/png');
+
+    if (!HF_TOKEN || !video) { setCaptured(overlayDataUrl); return; }
 
     setProcessing(true);
     setSegmentError(false);
     try {
-      const res = await fetch(dataUrl);
-      const blob = await res.blob();
+      // Frame limpio del video (sin overlay de MediaPipe) → mejor segmentación
+      const clean = document.createElement('canvas');
+      clean.width = canvas.width; clean.height = canvas.height;
+      const cc = clean.getContext('2d')!;
+      cc.save(); cc.scale(-1, 1); // espejo igual que el canvas principal
+      cc.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
+      cc.restore();
+      const cleanDataUrl = clean.toDataURL('image/jpeg', 0.88);
+
+      const blob = await (await fetch(cleanDataUrl)).blob();
       const masks = await callHFSegment(blob);
-      const result = await buildSegmentedResult(dataUrl, masks, selectedDesign, designImageRef.current);
+      const result = await buildSegmentedResult(cleanDataUrl, masks, selectedDesign, designImageRef.current);
       setCaptured(result);
     } catch {
       setSegmentError(true);
-      setCaptured(dataUrl);
+      setCaptured(overlayDataUrl);
     } finally {
       setProcessing(false);
     }
