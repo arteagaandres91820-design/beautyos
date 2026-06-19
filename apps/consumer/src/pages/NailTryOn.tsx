@@ -603,35 +603,23 @@ export function NailTryOn() {
     }
   }, [handleResults]);
 
-  const capturePhoto = async () => {
+  const capturePhoto = () => {
     const canvas = canvasRef.current;
-    const video = videoRef.current;
     if (!canvas) return;
+    setCaptured(canvas.toDataURL('image/png'));
+  };
 
-    // Foto con overlay (fallback visual si HF falla)
-    const overlayDataUrl = canvas.toDataURL('image/png');
-
-    if (!HF_TOKEN || !video) { setCaptured(overlayDataUrl); return; }
-
+  const enhanceWithAI = async () => {
+    if (!captured || !HF_TOKEN) return;
     setProcessing(true);
     setSegmentError(false);
     try {
-      // Frame limpio del video (sin overlay de MediaPipe) → mejor segmentación
-      const clean = document.createElement('canvas');
-      clean.width = canvas.width; clean.height = canvas.height;
-      const cc = clean.getContext('2d')!;
-      cc.save(); cc.scale(-1, 1); // espejo igual que el canvas principal
-      cc.drawImage(video, -canvas.width, 0, canvas.width, canvas.height);
-      cc.restore();
-      const cleanDataUrl = clean.toDataURL('image/jpeg', 0.88);
-
-      const blob = await (await fetch(cleanDataUrl)).blob();
+      const blob = await (await fetch(captured)).blob();
       const masks = await callHFSegment(blob);
-      const result = await buildSegmentedResult(cleanDataUrl, masks, selectedDesign, designImageRef.current);
+      const result = await buildSegmentedResult(captured, masks, selectedDesign, designImageRef.current);
       setCaptured(result);
     } catch {
       setSegmentError(true);
-      setCaptured(overlayDataUrl);
     } finally {
       setProcessing(false);
     }
@@ -762,7 +750,19 @@ export function NailTryOn() {
                 Sin conexión a IA — mostrando vista previa estándar
               </div>
             )}
-            <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 gap-4">
+            <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 gap-3">
+              {/* Mejorar con IA */}
+              {HF_TOKEN && !processing && (
+                <button
+                  onClick={enhanceWithAI}
+                  className="flex items-center gap-2 px-5 py-2.5 bg-white/15 backdrop-blur-sm border border-white/30 text-white rounded-2xl font-semibold text-sm active:scale-95 transition-transform"
+                >
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="white" strokeWidth="2">
+                    <path d="M12 2l2 5h5l-4 3 2 5-5-3-5 3 2-5-4-3h5z" />
+                  </svg>
+                  Mejorar con IA
+                </button>
+              )}
               <div className="flex gap-3">
                 <button
                   onClick={sharePhoto}
