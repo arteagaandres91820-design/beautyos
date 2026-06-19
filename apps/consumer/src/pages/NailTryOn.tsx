@@ -606,7 +606,15 @@ export function NailTryOn() {
   const capturePhoto = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setCaptured(canvas.toDataURL('image/png'));
+    canvas.toBlob(
+      blob => {
+        if (!blob) return;
+        // revoke previous object URL to avoid memory leaks
+        setCaptured(prev => { if (prev?.startsWith('blob:')) URL.revokeObjectURL(prev); return URL.createObjectURL(blob); });
+      },
+      'image/jpeg',
+      0.92
+    );
   };
 
   const enhanceWithAI = async () => {
