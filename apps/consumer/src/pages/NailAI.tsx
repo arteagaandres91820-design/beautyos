@@ -314,17 +314,21 @@ export function NailAI() {
 
       {/* Design grid — two sections */}
       <div className="px-5">
-        {loading ? (
-          <div className="flex justify-center py-12">
-            <div className="w-8 h-8 rounded-full border-2 border-primary/20 border-t-primary animate-spin" />
-          </div>
-        ) : filteredSalon.length === 0 && filteredCatalog.length === 0 ? (
+        {!loading && filteredSalon.length === 0 && filteredCatalog.length === 0 ? (
           <div className="text-center py-12">
             <p className="text-4xl mb-3">💅</p>
             <p className="text-sm text-muted">No hay diseños para este filtro</p>
           </div>
         ) : (
           <>
+            {/* — Salon loading indicator — */}
+            {loading && (
+              <div className="flex items-center gap-2 mb-4 text-xs text-muted">
+                <div className="w-3.5 h-3.5 rounded-full border-2 border-primary/20 border-t-primary animate-spin shrink-0" />
+                Cargando diseños del salón...
+              </div>
+            )}
+
             {/* — Salon uploads — */}
             {filteredSalon.length > 0 && (
               <div className="mb-6">

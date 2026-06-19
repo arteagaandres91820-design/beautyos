@@ -353,6 +353,21 @@ async function callHFSegment(blob: Blob, attempt = 0): Promise<Array<{ label: st
   return r.json();
 }
 
+function greyMaskToAlpha(maskImg: HTMLImageElement, w: number, h: number): HTMLCanvasElement {
+  const mc = document.createElement('canvas');
+  mc.width = w; mc.height = h;
+  const mctx = mc.getContext('2d')!;
+  mctx.drawImage(maskImg, 0, 0, w, h);
+  const px = mctx.getImageData(0, 0, w, h);
+  for (let i = 0; i < px.data.length; i += 4) {
+    const lum = (px.data[i] * 0.299 + px.data[i + 1] * 0.587 + px.data[i + 2] * 0.114);
+    px.data[i] = px.data[i + 1] = px.data[i + 2] = 255;
+    px.data[i + 3] = lum; // brillo → alpha: blanco=uña, negro=fondo transparente
+  }
+  mctx.putImageData(px, 0, 0);
+  return mc;
+}
+
 async function buildSegmentedResult(
   photoDataUrl: string,
   masks: Array<{ label: string; mask: string; score: number }>,
@@ -367,15 +382,18 @@ async function buildSegmentedResult(
   ctx.drawImage(photo, 0, 0);
 
   const nailMasks = masks.filter(m => m.label.toLowerCase().includes('nail') && m.score > 0.35);
-  if (nailMasks.length === 0) return photoDataUrl; // no nails found — return original
+  if (nailMasks.length === 0) return photoDataUrl;
 
   for (const md of nailMasks) {
     const maskImg = await loadImg(`data:image/png;base64,${md.mask}`);
+    // Convertir máscara gris a canal alpha (negro opaco → transparente)
+    const alphaMask = greyMaskToAlpha(maskImg, out.width, out.height);
+
     const dl = document.createElement('canvas');
     dl.width = out.width; dl.height = out.height;
     const dc = dl.getContext('2d')!;
 
-    // Fill design
+    // Capa de diseño
     if (designImg) {
       dc.drawImage(designImg, 0, 0, dl.width, dl.height);
     } else if (design.gradient && design.colors.length >= 2) {
@@ -386,14 +404,14 @@ async function buildSegmentedResult(
       dc.fillStyle = design.colors[0]; dc.fillRect(0, 0, dl.width, dl.height);
     }
 
-    // Gloss shimmer
+    // Brillo
     const gloss = dc.createRadialGradient(dl.width * 0.3, dl.height * 0.18, 0, dl.width * 0.3, dl.height * 0.18, dl.width * 0.6);
     gloss.addColorStop(0, 'rgba(255,255,255,0.40)'); gloss.addColorStop(1, 'rgba(255,255,255,0)');
     dc.fillStyle = gloss; dc.fillRect(0, 0, dl.width, dl.height);
 
-    // Clip to exact nail mask
+    // Recortar capa al contorno exacto de la uña
     dc.globalCompositeOperation = 'destination-in';
-    dc.drawImage(maskImg, 0, 0, dl.width, dl.height);
+    dc.drawImage(alphaMask, 0, 0);
 
     ctx.globalAlpha = 0.92; ctx.drawImage(dl, 0, 0); ctx.globalAlpha = 1;
   }
