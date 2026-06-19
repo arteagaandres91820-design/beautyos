@@ -326,6 +326,80 @@ function drawNailOnCanvas(
   ctx.restore();
 }
 
+const HF_TOKEN = (import.meta as any).env?.VITE_HF_TOKEN as string | undefined;
+
+function loadImg(src: string): Promise<HTMLImageElement> {
+  return new Promise((res, rej) => {
+    const i = new Image();
+    i.crossOrigin = 'anonymous';
+    i.onload = () => res(i);
+    i.onerror = rej;
+    i.src = src;
+  });
+}
+
+async function callHFSegment(blob: Blob, attempt = 0): Promise<Array<{ label: string; mask: string; score: number }>> {
+  const r = await fetch('https://api-inference.huggingface.co/models/nngeek195/nail-segmentation-v1', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${HF_TOKEN}`, 'Content-Type': 'application/octet-stream' },
+    body: blob,
+  });
+  if (r.status === 503 && attempt === 0) {
+    const body = await r.json().catch(() => ({}));
+    await new Promise(w => setTimeout(w, Math.min((body.estimated_time ?? 25) * 1000, 40_000)));
+    return callHFSegment(blob, 1);
+  }
+  if (!r.ok) throw new Error(`HF ${r.status}`);
+  return r.json();
+}
+
+async function buildSegmentedResult(
+  photoDataUrl: string,
+  masks: Array<{ label: string; mask: string; score: number }>,
+  design: NailDesign,
+  designImg: HTMLImageElement | null
+): Promise<string> {
+  const photo = await loadImg(photoDataUrl);
+  const out = document.createElement('canvas');
+  out.width = photo.naturalWidth;
+  out.height = photo.naturalHeight;
+  const ctx = out.getContext('2d')!;
+  ctx.drawImage(photo, 0, 0);
+
+  const nailMasks = masks.filter(m => m.label.toLowerCase().includes('nail') && m.score > 0.35);
+  if (nailMasks.length === 0) return photoDataUrl; // no nails found — return original
+
+  for (const md of nailMasks) {
+    const maskImg = await loadImg(`data:image/png;base64,${md.mask}`);
+    const dl = document.createElement('canvas');
+    dl.width = out.width; dl.height = out.height;
+    const dc = dl.getContext('2d')!;
+
+    // Fill design
+    if (designImg) {
+      dc.drawImage(designImg, 0, 0, dl.width, dl.height);
+    } else if (design.gradient && design.colors.length >= 2) {
+      const g = dc.createLinearGradient(0, 0, 0, dl.height);
+      g.addColorStop(0, design.colors[0]); g.addColorStop(1, design.colors[1]);
+      dc.fillStyle = g; dc.fillRect(0, 0, dl.width, dl.height);
+    } else {
+      dc.fillStyle = design.colors[0]; dc.fillRect(0, 0, dl.width, dl.height);
+    }
+
+    // Gloss shimmer
+    const gloss = dc.createRadialGradient(dl.width * 0.3, dl.height * 0.18, 0, dl.width * 0.3, dl.height * 0.18, dl.width * 0.6);
+    gloss.addColorStop(0, 'rgba(255,255,255,0.40)'); gloss.addColorStop(1, 'rgba(255,255,255,0)');
+    dc.fillStyle = gloss; dc.fillRect(0, 0, dl.width, dl.height);
+
+    // Clip to exact nail mask
+    dc.globalCompositeOperation = 'destination-in';
+    dc.drawImage(maskImg, 0, 0, dl.width, dl.height);
+
+    ctx.globalAlpha = 0.92; ctx.drawImage(dl, 0, 0); ctx.globalAlpha = 1;
+  }
+  return out.toDataURL('image/png');
+}
+
 export function NailTryOn() {
   const navigate = useNavigate();
   const { designId } = useParams<{ designId: string }>();
@@ -346,6 +420,8 @@ export function NailTryOn() {
 
   const [status, setStatus] = useState<'loading' | 'ready' | 'error' | 'nocamera'>('loading');
   const [captured, setCaptured] = useState<string | null>(null);
+  const [processing, setProcessing] = useState(false);
+  const [segmentError, setSegmentError] = useState(false);
   const [handDetected, setHandDetected] = useState(false);
   const [selectedDesign, setSelectedDesign] = useState<NailDesign>(initialDesign);
   const [pickerDesigns, setPickerDesigns] = useState<NailDesign[]>(
@@ -504,10 +580,27 @@ export function NailTryOn() {
     }
   }, [handleResults]);
 
-  const capturePhoto = () => {
+  const capturePhoto = async () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
-    setCaptured(canvas.toDataURL('image/png'));
+    const dataUrl = canvas.toDataURL('image/png');
+
+    if (!HF_TOKEN) { setCaptured(dataUrl); return; }
+
+    setProcessing(true);
+    setSegmentError(false);
+    try {
+      const res = await fetch(dataUrl);
+      const blob = await res.blob();
+      const masks = await callHFSegment(blob);
+      const result = await buildSegmentedResult(dataUrl, masks, selectedDesign, designImageRef.current);
+      setCaptured(result);
+    } catch {
+      setSegmentError(true);
+      setCaptured(dataUrl);
+    } finally {
+      setProcessing(false);
+    }
   };
 
   const sharePhoto = async () => {
@@ -617,10 +710,24 @@ export function NailTryOn() {
           </button>
         </div>
 
+        {/* Processing overlay */}
+        {processing && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-20">
+            <div className="w-14 h-14 rounded-full border-2 border-white/20 border-t-pink-400 animate-spin mb-5" />
+            <p className="text-white font-semibold text-sm">Analizando tus uñas...</p>
+            <p className="text-white/50 text-xs mt-1">IA detectando contorno exacto</p>
+          </div>
+        )}
+
         {/* Captured photo overlay */}
         {captured && (
           <div className="absolute inset-0 z-20 flex flex-col">
             <img src={captured} className="flex-1 object-cover" alt="captured" />
+            {segmentError && (
+              <div className="absolute top-14 left-4 right-4 bg-yellow-500/20 border border-yellow-500/40 rounded-xl px-3 py-2 text-yellow-300 text-xs text-center">
+                Sin conexión a IA — mostrando vista previa estándar
+              </div>
+            )}
             <div className="absolute inset-0 flex flex-col items-center justify-end pb-8 gap-4">
               <div className="flex gap-3">
                 <button
@@ -702,7 +809,7 @@ export function NailTryOn() {
           <div className="flex items-center justify-center">
             <button
               onClick={capturePhoto}
-              disabled={status !== 'ready'}
+              disabled={status !== 'ready' || processing}
               className="w-16 h-16 rounded-full border-4 border-white flex items-center justify-center active:scale-90 transition-transform disabled:opacity-40"
             >
               <div className="w-12 h-12 rounded-full bg-white" />
